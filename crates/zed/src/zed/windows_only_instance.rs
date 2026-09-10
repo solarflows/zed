@@ -19,6 +19,7 @@ use windows::{
             },
             Threading::CreateMutexW,
         },
+        UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow},
     },
     core::HSTRING,
 };
@@ -208,6 +209,7 @@ fn send_args_to_instance(args: &Args) -> anyhow::Result<()> {
 
 fn write_message_to_instance_pipe(message: &[u8]) -> anyhow::Result<()> {
     unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
         let pipe = CreateFileW(
             &HSTRING::from(format!("\\\\.\\pipe\\{}-Named-Pipe", app_identifier())),
             GENERIC_WRITE.0,

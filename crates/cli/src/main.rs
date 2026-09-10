@@ -1174,6 +1174,7 @@ mod windows {
                 CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_MODE, OPEN_EXISTING, WriteFile,
             },
             System::Threading::CreateMutexW,
+            UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow},
         },
         core::HSTRING,
     };
@@ -1230,6 +1231,7 @@ mod windows {
                 cmd.spawn()?;
             } else {
                 unsafe {
+                    let _ = AllowSetForegroundWindow(ASFW_ANY);
                     let pipe = CreateFileW(
                         &HSTRING::from(format!("\\\\.\\pipe\\{}-Named-Pipe", app_identifier())),
                         GENERIC_WRITE.0,
