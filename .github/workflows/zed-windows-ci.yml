@@ -1,0 +1,86 @@
+name: zed-windows-phantom-alt
+
+# 用途：#62404 幽灵 Alt 修复的 Windows 构建 + 出包
+# 放在 fork: solarflows/zed 的 .github/workflows/ 下
+
+on:
+  push:
+    branches:
+      - 'ci/**'          # CI 分支（含本文件）；PR 分支保持干净
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'          # 与 Zed CI 一致，且省磁盘
+  RUST_BACKTRACE: '1'
+  # ↓ 关键：大幅压缩 target 体积（Zed 默认 release 可能带调试信息）
+  CARGO_PROFILE_RELEASE_DEBUG: '0'
+  CARGO_PROFILE_RELEASE_STRIP: 'symbols'
+
+jobs:
+  build:
+    # ⚠️ 关键：显式用 windows-2022，不要用 windows-latest
+    #   windows-latest = Server 2025 → D: 盘被移除，C: 仅剩 ~33 GB
+    #   windows-2022  → C: ~93 GB 空闲 + D: ~147 GB 空闲
+    #   Zed 官方 CI 用的也是 windows-2022
+    #   参考: actions/runner-images#12609
+    runs-on: windows-2022
+    timeout-minutes: 350          # GitHub 上限 360；Zed 冷编译很慢
+
+    steps:
+      # ---------- 0. 磁盘诊断 ----------
+      - name: 磁盘状态（开始）
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem |
+            Select-Object Name,
+              @{n='Used(GB)';e={[math]::Round($_.Used/1GB,1)}},
+              @{n='Free(GB)';e={[math]::Round($_.Free/1GB,1)}}
+
+      # ---------- 1. 取代码 ----------
+      - uses: actions/checkout@v4
+
+      # ---------- 2. 缓存（关键：把 5 小时压到可接受范围）----------
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: zed-windows-phantom-alt
+          workspaces: ". -> target"
+
+      # ---------- 3. Zed CI 约定 ----------
+      - name: 设置 CI cargo config
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "./../.cargo" -Force
+          Copy-Item -Path "./.cargo/ci-config.toml" -Destination "./../.cargo/config.toml"
+
+      # ---------- 4. 快速编译验证（低磁盘，先拿到信号）----------
+      - name: cargo check · gpui_windows + cli
+        run: cargo check -p gpui_windows -p cli
+
+      - name: cargo check · zed（含 windows_only_instance.rs）
+        run: cargo check -p zed
+
+      # ---------- 5. 出包 ----------
+      - name: cargo build --release
+        run: cargo build --release -p zed -p cli
+
+      - name: 磁盘状态（结束）
+        if: always()
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem |
+            Select-Object Name,
+              @{n='Used(GB)';e={[math]::Round($_.Used/1GB,1)}},
+              @{n='Free(GB)';e={[math]::Round($_.Free/1GB,1)}}
+
+      # ---------- 6. 上传产物 ----------
+      - name: 上传 zed.exe + cli.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-windows-phantom-alt
+          path: |
+            target/release/zed.exe
+            target/release/cli.exe
+          if-no-files-found: error
+          retention-days: 14
